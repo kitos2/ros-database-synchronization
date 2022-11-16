@@ -3,6 +3,7 @@
 # author: Christos Georgiades
 # contact: chr.georgiades@gmail.com
 # date: 15-11-2022
+# version: v1.0.1
 
 import os
 import sys
