@@ -3,7 +3,6 @@
 # author: Christos Georgiades
 # contact: chr.georgiades@gmail.com
 # date: 15-11-2022
-# version: v1.0.1
 
 import os
 import sys
@@ -48,8 +47,6 @@ dbInstance = dbDir + '/drone' + datetime.datetime.now().strftime("%Y-%m-%d-%H:%M
 db = sqlite3.connect(dbInstance, check_same_thread=False)
 dbCursor = db.cursor()
 dbMutex = Lock()
-
-
 
 
 def getPacketType(packet):
@@ -604,6 +601,8 @@ databaseActive = True
 def databaseActiveCB(dbState):
     global databaseActive
     
+    print('databaseActiveCB', dbState)
+    
     if dbState.data:
         databaseActive = True
     else:
@@ -640,10 +639,14 @@ def dataRequestCB(dataRequest):
     if DEBUG or True:
         print('Data Retrieval Query:\n\t' + str(query))
     
-    dbMutex.acquire()
-    selectResult = dbCursor.execute(query)
-    resultList = selectResult.fetchall()
-    dbMutex.release()
+    try:
+        dbMutex.acquire()
+        selectResult = dbCursor.execute(query)
+        resultList = selectResult.fetchall()
+        dbMutex.release()
+    except Exception as e:
+        print('dataRequestCB - Exception:', e)
+        return
     
     #print('Result List:\n\t', resultList)
     
@@ -753,11 +756,13 @@ def checkDataCompletion(packet, tableName):
             #print(unfilledDataRequests)
             
         else:  
+            print('===================================')
             print('Data Request unfulfilled - Awaiting')
             
             print('unfilledDataRequests[uidTable]:', unfilledDataRequests[uidTable])
             print('unfilledDataRequests[uidTable]:', dataRequestCount[uidTable])
             print('dataRequestTimestamp[uidTable]:', dataRequestTimestamp[uidTable])
+            print('===================================')
             
             return
     
@@ -806,7 +811,7 @@ def buildRequestList(packet, tableName):
     dbCursor.row_factory = None
     dbMutex.release()
     
-    print ('seqlist for table ' + str(tableName) + ' :', seqList)
+    print ('seqlist for table ' + str(tableName) + '/' + str(packet.uid) + ' :', seqList)
     
     if DEBUG:
         print('seqList built')
@@ -858,21 +863,24 @@ def sendMissingDataRequest(packet, tableName, requestMsg):
 
 
 def dataRequestValidity():
-    print('Data Request Check Start')
+    print('Data Request Watcher - Data Request Check Start')
     global unfilledDataRequests, dataRequestCount, dataRequestTimestamp
     
     
     reqRate=rospy.Rate(0.1)    
-    requestTimeLimit = 1    # in minutes
-    
-    
+    requestTimeLimitSec = 20    # [s]
     
     
     while not rospy.is_shutdown():
         currentTimestamp = datetime.datetime.now()
                 
         for req in list(unfilledDataRequests.keys()):
-            if (dataRequestTimestamp[req].timestamp - currentTimestamp).total_seconds() > requestTimeLimit:
+            secDifference = (currentTimestamp - dataRequestTimestamp[req]).total_seconds()
+            
+            print('Request ' + str(req) + ':', dataRequestTimestamp[req])
+            print('Time difference:', secDifference, '[s]')
+            
+            if secDifference > requestTimeLimitSec:
                 del unfilledDataRequests[req]
                 del dataRequestCount[req]
                 del dataRequestTimestamp[req]
@@ -900,44 +908,46 @@ def listener(dji_name = "matrice300"):
     rospy.Subscriber(dji_name+'/DatabaseActive', Bool, databaseActiveCB)  
     rospy.Subscriber(dji_name+'/DataRequest', DatabasePacketRequest, dataRequestCB)
     
+    print('Starting Data Request Watcher...')
     requestProgrammer = Thread(target=dataRequestValidity)
+    requestProgrammer.start()
     
     # Topics to be saved
-#    rospy.Subscriber('/master_discovery/linkstats', LinkStatesStamped, savePacketCB)
-#     
-#    rospy.Subscriber(dji_name+'/BuildMapRequest', BuildMap, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/DroneHardware', DroneHardware, savePacketCB)    
-    rospy.Subscriber(dji_name+'/TerminalHardware', TerminalHardware, savePacketCB)
-#    rospy.Subscriber(dji_name+'/DroneMovement', DroneMovement, savePacketCB)
-#    rospy.Subscriber(dji_name+'/DroneState', String, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/ESC_data', EscData, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/Mission', MissionDji, savePacketCB)
-#    rospy.Subscriber(dji_name+'/ObtainControlAuthority', Bool, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/Positioning', Positioning, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/Telemetry', Telemetry, savePacketCB)
-#
-#    rospy.Subscriber(dji_name+'/WeatherStation', trisonica_msg, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/acceleration_ground_fused', Vector3Stamped, savePacketCB)
-#    rospy.Subscriber(dji_name+'/angular_velocity_fused', Vector3Stamped, savePacketCB)
-#    rospy.Subscriber(dji_name+'/attitude', QuaternionStamped, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/battery_state', BatteryState, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/flight_anomaly', FlightAnomaly, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/gimbal_angle', Vector3Stamped, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/wind_data', WindData, savePacketCB)
-#    
-#    rospy.Subscriber(dji_name+'/CameraList', ComponentList, savePacketCB)  
+    rospy.Subscriber('/master_discovery/linkstats', LinkStatesStamped, savePacketCB)
+     
+    rospy.Subscriber(dji_name+'/BuildMapRequest', BuildMap, savePacketCB)
     
-    #rospy.Subscriber(dji_name+'/Topic', PacketType, savePacketCB)
+    rospy.Subscriber(dji_name+'/DroneHardware', DroneHardware, savePacketCB)    
+    rospy.Subscriber(dji_name+'/TerminalHardware', TerminalHardware, savePacketCB)
+    rospy.Subscriber(dji_name+'/DroneMovement', DroneMovement, savePacketCB)
+    rospy.Subscriber(dji_name+'/DroneState', String, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/ESC_data', EscData, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/Mission', MissionDji, savePacketCB)
+    rospy.Subscriber(dji_name+'/ObtainControlAuthority', Bool, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/Positioning', Positioning, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/Telemetry', Telemetry, savePacketCB)
+
+    rospy.Subscriber(dji_name+'/WeatherStation', trisonica_msg, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/acceleration_ground_fused', Vector3Stamped, savePacketCB)
+    rospy.Subscriber(dji_name+'/angular_velocity_fused', Vector3Stamped, savePacketCB)
+    rospy.Subscriber(dji_name+'/attitude', QuaternionStamped, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/battery_state', BatteryState, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/flight_anomaly', FlightAnomaly, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/gimbal_angle', Vector3Stamped, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/wind_data', WindData, savePacketCB)
+    
+    rospy.Subscriber(dji_name+'/CameraList', ComponentList, savePacketCB)  
+    
+    rospy.Subscriber(dji_name+'/Topic', PacketType, savePacketCB)
     
     print('Database Handler - Finished topic subscription')    
     print('DatabaseHandler - Armed')
